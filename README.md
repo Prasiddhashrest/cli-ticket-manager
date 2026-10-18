@@ -1,105 +1,119 @@
-# CLI Ticket Manager (Python + SQLite)
+# IT Support Ticket Manager — Python CLI + Streamlit Dashboard
 
-A command-line application for managing mock IT help-desk tickets. Create, inspect, filter, resolve, and reopen tickets, with data saved between runs in SQLite.
+A local IT support ticket management demo built with Python and SQLite. Create tickets, set priorities and categories, assign tickets to technicians, reopen or resolve them, and explore your workload in an interactive dashboard. **Both the CLI and dashboard read/write the same local SQLite database.**
 
-**Tech stack:** Python 3.9+, SQLite (`sqlite3`), `argparse`, `dataclasses`, `unittest`, GitHub Actions. No third-party dependencies.
+**Tech stack:** Python 3.9+, SQLite (`sqlite3`), Python `dataclasses` and `argparse`, Streamlit, `unittest`, GitHub Actions.
 
 ## Features
 
-- Create tickets with a title, description, priority, and category.
-- List and filter tickets by status, priority, or category.
-- View full ticket details.
-- Resolve and reopen tickets with UTC timestamps.
-- View total/open/resolved counts.
-- Persistent SQLite database; parameterized SQL queries.
-- Automated tests using Python's standard library.
-- GitHub Actions runs the test suite for each push and pull request.
+- Create and view tickets, with title, description, priority and category.
+- Assign, reassign and unassign technicians (from CLI or dashboard).
+- Filter by ticket status, priority, category, assigned technician or unassigned tickets.
+- Mark tickets resolved or reopen them; timestamps are stored in UTC.
+- Dashboard displays summary metrics, category/priority charts, a technician workload chart, and a searchable ticket table.
+- Export filtered tickets as CSV from the dashboard.
+- Persistent SQLite database using parameterized SQL queries.
+- Automatic **non-destructive migration** that adds `assigned_to` to databases created with v1.0.
+- Automated unit tests for ticket operations, assignment, CLI commands and database migration.
 
-## Get started
+## Run the dashboard
 
-From the project directory:
-
-```bash
-python3 --version
-python3 main.py --help
-python3 main.py add --title "VPN will not connect" --description "VPN fails after login" --priority high --category network
-python3 main.py add --title "New employee access" --priority medium --category access
-python3 main.py list
-python3 main.py list --status open --priority high
-python3 main.py show 1
-python3 main.py resolve 1
-python3 main.py list --status resolved
-python3 main.py reopen 1
-python3 main.py stats
-```
-
-By default, the database file is saved in `data/tickets.db` relative to the project, which is excluded from Git by `.gitignore`.
-
-To use another database:
+From the project directory on macOS or Linux:
 
 ```bash
-python3 main.py --db /tmp/demo-tickets.db list
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m streamlit run dashboard.py
 ```
 
-**Note:** `--db` is a global option and must come before the subcommand.
+Streamlit should open a local URL such as http://localhost:8501. Use **Control+C** to stop the server. When you return later, activate the virtual environment again with `source .venv/bin/activate`.
 
-## Run tests
+## CLI examples
 
 ```bash
-python3 -m unittest discover -s tests -v
+# Use python (inside the venv), or python3 if your global Python is configured.
+python main.py --help
+python main.py add --title "VPN won't connect" --priority high --category network
+python main.py add --title "Laptop replacement" --priority medium --category hardware --agent "Alex Kim"
+python main.py list
+python main.py list --unassigned
+python main.py list --agent "Alex Kim"
+python main.py assign 1 --agent "Taylor Lee"
+python main.py show 1
+python main.py unassign 1
+python main.py resolve 1
+python main.py reopen 1
+python main.py stats
 ```
+
+**Note:** `--db` is a global option and must come before the command. For example:
+
+```bash
+python main.py --db /tmp/demo-tickets.db list
+```
+
+## How upgrades preserve earlier tickets
+
+The database is stored at `data/tickets.db` and deliberately excluded from Git. When a `TicketRepository` opens a v1.0 database, it checks existing SQLite columns with `PRAGMA table_info(tickets)`. If `assigned_to` is missing, it executes `ALTER TABLE tickets ADD COLUMN assigned_to TEXT`. Old tickets remain intact and start out unassigned (`NULL`). Running the migration a second time makes no change.
+
+Before applying an upgrade to a database you care about, make a local backup:
+
+```bash
+if [ -f data/tickets.db ]; then cp data/tickets.db data/tickets-backup-before-v1.2.db; fi
+```
+
+The `data/` folder and `.venv/` are ignored by Git. Do not upload real support requests, passwords, employer details, or other confidential information to this demo app.
+
+## Test
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The included GitHub Actions workflow automatically runs the standard-library tests on pushes and pull requests. No Streamlit installation is needed for those repository tests. The Streamlit user interface should also be tested manually in a browser.
 
 ## Folder structure
 
 ```text
 cli-ticket-manager/
-├── main.py                   # Entrypoint
+├── dashboard.py                # Visual UI: filters, charts, assignments
+├── main.py                     # CLI entry point
+├── requirements.txt            # Streamlit dependency
 ├── ticket_manager/
 │   ├── __init__.py
-│   ├── models.py             # Ticket data model
-│   ├── storage.py            # SQLite repository
-│   └── cli.py                # Argument parsing and output
+│   ├── cli.py                  # argparse commands: add/list/assign/etc.
+│   ├── models.py               # Immutable Ticket object
+│   └── storage.py              # SQLite queries and schema migration
 ├── tests/
-│   ├── __init__.py
-│   └── test_ticket_manager.py
-├── .github/workflows/tests.yml # CI tests on GitHub
+│   ├── test_ticket_manager.py  # Original regression tests
+│   └── test_assignments.py     # New assignment + migration tests
+├── .github/workflows/tests.yml
 ├── .gitignore
+├── CHANGELOG.md
 └── README.md
 ```
 
-The `data/` directory is created automatically when you run a command. Keep the local DB out of Git.
+`data/tickets.db` is created on first run, not committed.
 
-## Design overview
+## Git workflow
 
-`main.py` calls `ticket_manager.cli.main()`. The CLI parses the command and calls a `TicketRepository`. The repository executes parameterized SQL against SQLite and returns immutable `Ticket` objects.
-
-## Future improvements
-
-- Assignment of tickets to support agents.
-- Search by keywords and date ranges.
-- CSV export and import.
-- Priority-based statistics or SLA tracking.
-- Publish as a `pip`-installable command.
-
-## Important note
-
-This is a local learning/demo project using mock support tickets, not a production-ready help-desk system. Avoid entering actual passwords, customer records, or confidential work information.
-
-## Push to GitHub
+Develop on a feature branch, test it, push the branch, open a pull request on GitHub, and merge after review. For example:
 
 ```bash
-git init -b main
-git add .
-git commit -m "Build CLI ticket manager with SQLite"
-gh auth login   # Only if you are not already logged in
-gh repo create cli-ticket-manager --public --source=. --remote=origin --push
+git status
+python -m unittest discover -s tests -v
+git add dashboard.py ticket_manager/models.py ticket_manager/storage.py ticket_manager/cli.py tests/test_assignments.py README.md CHANGELOG.md
+git commit -m "Add technician assignment and workload analytics"
+git push -u origin feature/visual-dashboard
 ```
 
-`gh` is GitHub's command-line app. If you don't have it, create an empty repository named `cli-ticket-manager` on GitHub and run:
+Then open a pull request targeting `main` from `feature/visual-dashboard`. If using GitHub CLI (`gh`), `gh pr create --base main --head feature/visual-dashboard` starts the process. After merging, update your local main with `git switch main && git pull origin main`.
 
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/cli-ticket-manager.git
-git push -u origin main
-```
+## Architecture at a glance
 
-When using the website approach, don't check the option to generate a README because this repository already has one.
+`main.py -> ticket_manager.cli -> TicketRepository -> SQLite`
+
+`dashboard.py -> TicketRepository -> SQLite`
+
+All new tickets are examples: this is a portfolio/learning app, not a production help-desk product. The development process demonstrates data modeling, SQL migrations, unit testing, UI design, and version control.

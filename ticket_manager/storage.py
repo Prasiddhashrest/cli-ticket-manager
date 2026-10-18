@@ -1,4 +1,4 @@
-"""SQLite persistence layer for the ticket manager."""
+"""SQLite persistence layer, including a migration for existing ticket databases."""
 
 import sqlite3
 from contextlib import contextmanager
@@ -10,7 +10,7 @@ from .models import Ticket
 
 
 class TicketRepository:
-    """Create, retrieve, filter, and update tickets in SQLite."""
+    """Create, retrieve, filter, assign, and update IT support tickets in SQLite."""
 
     def __init__(self, database_path: Path):
         self.database_path = Path(database_path)
@@ -44,16 +44,42 @@ class TicketRepository:
                     status TEXT NOT NULL DEFAULT 'open'
                         CHECK(status IN ('open', 'resolved')),
                     created_at TEXT NOT NULL,
-                    resolved_at TEXT
+                    resolved_at TEXT,
+                    assigned_to TEXT
                 )
                 """
             )
+
+            # Older versions already have a tickets table, without assigned_to.
+            # ALTER TABLE upgrades it in place, preserving the existing tickets.
+            existing_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(tickets)")
+            }
+            if "assigned_to" not in existing_columns:
+                connection.execute("ALTER TABLE tickets ADD COLUMN assigned_to TEXT")
 
     @staticmethod
     def _to_ticket(row: sqlite3.Row) -> Ticket:
         return Ticket(**dict(row))
 
-    def add(self, title: str, description: str, priority: str, category: str) -> Ticket:
+    @staticmethod
+    def _clean_agent(agent: Optional[str], *, required: bool = False) -> Optional[str]:
+        """Trim technician names; represent an unassigned ticket with NULL."""
+        cleaned = agent.strip() if agent is not None else ""
+        if required and not cleaned:
+            raise ValueError("Technician name cannot be empty.")
+        if len(cleaned) > 80:
+            raise ValueError("Technician name must be 80 characters or fewer.")
+        return cleaned or None
+
+    def add(
+        self,
+        title: str,
+        description: str,
+        priority: str,
+        category: str,
+        assigned_to: Optional[str] = None,
+    ) -> Ticket:
         if not title.strip():
             raise ValueError("Ticket title cannot be empty.")
         if priority not in {"low", "medium", "high"}:
@@ -61,14 +87,16 @@ class TicketRepository:
         if category not in {"hardware", "software", "network", "access", "other"}:
             raise ValueError("Invalid category.")
 
+        agent = self._clean_agent(assigned_to)
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self._connect() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO tickets (title, description, priority, category, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO tickets
+                    (title, description, priority, category, created_at, assigned_to)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (title.strip(), description.strip(), priority, category, created_at),
+                (title.strip(), description.strip(), priority, category, created_at, agent),
             )
             ticket_id = cursor.lastrowid
         return self.get(ticket_id)
@@ -85,17 +113,41 @@ class TicketRepository:
         status: Optional[str] = None,
         priority: Optional[str] = None,
         category: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        unassigned: bool = False,
     ) -> List[Ticket]:
+        if unassigned and assigned_to is not None:
+            raise ValueError("Choose either a technician filter or unassigned.")
+
         query = "SELECT * FROM tickets WHERE 1 = 1"
         parameters = []
         for name, value in (("status", status), ("priority", priority), ("category", category)):
             if value is not None:
                 query += " AND {} = ?".format(name)
                 parameters.append(value)
+        if assigned_to is not None:
+            query += " AND assigned_to = ? COLLATE NOCASE"
+            parameters.append(self._clean_agent(assigned_to, required=True))
+        elif unassigned:
+            query += " AND assigned_to IS NULL"
         query += " ORDER BY id DESC"
         with self._connect() as connection:
             rows = connection.execute(query, parameters).fetchall()
         return [self._to_ticket(row) for row in rows]
+
+    def set_assignee(self, ticket_id: int, assigned_to: Optional[str]) -> Optional[Ticket]:
+        """Assign/reassign a technician; pass None to unassign.
+
+        Returns None if the ticket doesn't exist.
+        """
+        agent = self._clean_agent(assigned_to)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE tickets SET assigned_to = ? WHERE id = ?", (agent, ticket_id)
+            )
+            if cursor.rowcount == 0:
+                return None
+        return self.get(ticket_id)
 
     def set_status(self, ticket_id: int, status: str) -> Optional[Ticket]:
         if status not in {"open", "resolved"}:

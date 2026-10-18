@@ -1,4 +1,4 @@
-"""Domain model for support tickets."""
+"""Domain model for IT support tickets."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -14,3 +14,4 @@ class Ticket:
     status: str
     created_at: str
     resolved_at: Optional[str] = None
+    assigned_to: Optional[str] = None
