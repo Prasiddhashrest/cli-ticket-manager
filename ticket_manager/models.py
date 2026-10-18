@@ -1,4 +1,4 @@
-"""Domain model for IT support tickets."""
+"""Immutable domain models for IT support tickets and activity history."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -15,3 +15,15 @@ class Ticket:
     created_at: str
     resolved_at: Optional[str] = None
     assigned_to: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class TicketEvent:
+    id: int
+    ticket_id: int
+    event_type: str
+    field_name: Optional[str]
+    old_value: Optional[str]
+    new_value: Optional[str]
+    created_at: str

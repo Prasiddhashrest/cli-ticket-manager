@@ -1,119 +1,109 @@
-# IT Support Ticket Manager — Python CLI + Streamlit Dashboard
+# Support Desk — Python IT Ticket Manager (v1.3)
 
-A local IT support ticket management demo built with Python and SQLite. Create tickets, set priorities and categories, assign tickets to technicians, reopen or resolve them, and explore your workload in an interactive dashboard. **Both the CLI and dashboard read/write the same local SQLite database.**
+A local software engineering portfolio project featuring both a Python command-line interface and a browser-based Streamlit dashboard. Both interfaces share one SQLite database, so changes made in the terminal immediately appear in the web dashboard.
 
-**Tech stack:** Python 3.9+, SQLite (`sqlite3`), Python `dataclasses` and `argparse`, Streamlit, `unittest`, GitHub Actions.
+**Stack:** Python 3.9+, SQLite (`sqlite3`), OOP and Python dataclasses, `argparse`, Streamlit, Python `unittest`, GitHub Actions.
 
 ## Features
 
-- Create and view tickets, with title, description, priority and category.
-- Assign, reassign and unassign technicians (from CLI or dashboard).
-- Filter by ticket status, priority, category, assigned technician or unassigned tickets.
-- Mark tickets resolved or reopen them; timestamps are stored in UTC.
-- Dashboard displays summary metrics, category/priority charts, a technician workload chart, and a searchable ticket table.
-- Export filtered tickets as CSV from the dashboard.
-- Persistent SQLite database using parameterized SQL queries.
-- Automatic **non-destructive migration** that adds `assigned_to` to databases created with v1.0.
-- Automated unit tests for ticket operations, assignment, CLI commands and database migration.
+- Create, view, filter, and resolve/reopen mock IT support tickets.
+- Assign, reassign, and unassign technicians.
+- **Edit title, description, priority, and category** of existing tickets.
+- **Activity history** records ticket creations and any new edits, assignment changes, and status changes, with old/new values and UTC timestamps.
+- Visual dashboard with searchable queue, status metrics, ticket trends, workload charts, individual ticket history, and a global activity log.
+- Download filtered tickets to CSV.
+- Durable local storage and parameterized SQLite queries.
+- Automated regression tests and backward-compatible database migrations.
 
-## Run the dashboard
-
-From the project directory on macOS or Linux:
+## Run locally
 
 ```bash
-python3 -m venv .venv
+cd ~/Downloads/cli-ticket-manager
+python3 -m venv .venv                  # Only if your venv doesn't already exist
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m streamlit run dashboard.py
 ```
 
-Streamlit should open a local URL such as http://localhost:8501. Use **Control+C** to stop the server. When you return later, activate the virtual environment again with `source .venv/bin/activate`.
+Open the displayed local URL (normally http://localhost:8501). Press Control+C to stop the server. Your local database is stored in `data/tickets.db`.
+
+### Browser navigation
+
+- **Overview:** KPIs, category/priority charts, creation trends, and the searchable queue.
+- **Manage tickets:** Select a ticket, edit details, assign a technician, resolve or reopen it, and inspect its history. Filters in the sidebar affect the queue in both Overview and Manage tickets.
+- **New ticket:** Submit mock support requests.
+- **Activity log:** See recorded changes across tickets or filter the log to one ticket.
 
 ## CLI examples
 
 ```bash
-# Use python (inside the venv), or python3 if your global Python is configured.
 python main.py --help
-python main.py add --title "VPN won't connect" --priority high --category network
-python main.py add --title "Laptop replacement" --priority medium --category hardware --agent "Alex Kim"
+python main.py add --title "VPN connection issue" --priority high --category network
 python main.py list
-python main.py list --unassigned
-python main.py list --agent "Alex Kim"
-python main.py assign 1 --agent "Taylor Lee"
 python main.py show 1
-python main.py unassign 1
+python main.py edit 1 --title "VPN fails when remote" --priority medium
+python main.py edit 1 --description ""    # Clear the description
+python main.py assign 1 --agent "Taylor Lee"
 python main.py resolve 1
+python main.py history 1
+python main.py activity --limit 20
 python main.py reopen 1
-python main.py stats
 ```
 
-**Note:** `--db` is a global option and must come before the command. For example:
+To use a test database instead, place `--db /path/to/database.db` **before** the command.
+
+## Upgrading from earlier versions
+
+Before unzipping an update into an existing project, stop Streamlit and back up the local database:
 
 ```bash
-python main.py --db /tmp/demo-tickets.db list
+mkdir -p backups
+if [ -f data/tickets.db ]; then cp data/tickets.db backups/tickets-before-v1.3.db; fi
 ```
 
-## How upgrades preserve earlier tickets
+On first run, `TicketRepository` performs a repeatable SQLite migration:
 
-The database is stored at `data/tickets.db` and deliberately excluded from Git. When a `TicketRepository` opens a v1.0 database, it checks existing SQLite columns with `PRAGMA table_info(tickets)`. If `assigned_to` is missing, it executes `ALTER TABLE tickets ADD COLUMN assigned_to TEXT`. Old tickets remain intact and start out unassigned (`NULL`). Running the migration a second time makes no change.
+- Adds the `assigned_to` column if upgrading directly from v1.0.
+- Adds an optional `updated_at` timestamp column.
+- Creates a separate `ticket_events` table for event history.
+- Preserves all existing ticket rows.
 
-Before applying an upgrade to a database you care about, make a local backup:
+**Important:** This migration cannot reconstruct events from previous releases. An older ticket's activity will be empty until you modify it after installing v1.3. An old ticket with `updated_at = NULL` has no recorded modification timestamp yet.
 
-```bash
-if [ -f data/tickets.db ]; then cp data/tickets.db data/tickets-backup-before-v1.2.db; fi
-```
+Local tickets, `.venv`, and backups are ignored by Git via `.gitignore` patterns. Don't include personal information, real passwords, or confidential employer support requests in this learning project. This is a single-user demo, not a production help-desk solution or tamper-proof audit service.
 
-The `data/` folder and `.venv/` are ignored by Git. Do not upload real support requests, passwords, employer details, or other confidential information to this demo app.
-
-## Test
+## Run automated tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The included GitHub Actions workflow automatically runs the standard-library tests on pushes and pull requests. No Streamlit installation is needed for those repository tests. The Streamlit user interface should also be tested manually in a browser.
+The repository's GitHub Actions workflow runs standard-library tests on pushes and pull requests. Test the interactive UI manually in your browser after updating.
 
-## Folder structure
+## Recommended Git feature-branch workflow
+
+```bash
+git switch main
+git pull origin main
+git switch -c feature/ticket-edit-history-v1.3
+# Unzip the v1.3 overlay into the root of the repo.
+python -m unittest discover -s tests -v
+git status
+git diff --stat
+git add dashboard.py ticket_manager/models.py ticket_manager/storage.py ticket_manager/cli.py tests/test_edit_history.py README.md CHANGELOG.md
+git commit -m "Add ticket editing and activity history"
+git push -u origin feature/ticket-edit-history-v1.3
+# Create a PR with: gh pr create --base main --head feature/ticket-edit-history-v1.3 --fill
+```
+
+## Architecture
 
 ```text
-cli-ticket-manager/
-├── dashboard.py                # Visual UI: filters, charts, assignments
-├── main.py                     # CLI entry point
-├── requirements.txt            # Streamlit dependency
-├── ticket_manager/
-│   ├── __init__.py
-│   ├── cli.py                  # argparse commands: add/list/assign/etc.
-│   ├── models.py               # Immutable Ticket object
-│   └── storage.py              # SQLite queries and schema migration
-├── tests/
-│   ├── test_ticket_manager.py  # Original regression tests
-│   └── test_assignments.py     # New assignment + migration tests
-├── .github/workflows/tests.yml
-├── .gitignore
-├── CHANGELOG.md
-└── README.md
+main.py ──────> ticket_manager/cli.py ─┐
+                                      ├──> TicketRepository ──> SQLite
+ dashboard.py ────────────────────────┘          |
+                                                ├── tickets (current state)
+                                                └── ticket_events (recorded changes)
 ```
 
-`data/tickets.db` is created on first run, not committed.
-
-## Git workflow
-
-Develop on a feature branch, test it, push the branch, open a pull request on GitHub, and merge after review. For example:
-
-```bash
-git status
-python -m unittest discover -s tests -v
-git add dashboard.py ticket_manager/models.py ticket_manager/storage.py ticket_manager/cli.py tests/test_assignments.py README.md CHANGELOG.md
-git commit -m "Add technician assignment and workload analytics"
-git push -u origin feature/visual-dashboard
-```
-
-Then open a pull request targeting `main` from `feature/visual-dashboard`. If using GitHub CLI (`gh`), `gh pr create --base main --head feature/visual-dashboard` starts the process. After merging, update your local main with `git switch main && git pull origin main`.
-
-## Architecture at a glance
-
-`main.py -> ticket_manager.cli -> TicketRepository -> SQLite`
-
-`dashboard.py -> TicketRepository -> SQLite`
-
-All new tickets are examples: this is a portfolio/learning app, not a production help-desk product. The development process demonstrates data modeling, SQL migrations, unit testing, UI design, and version control.
+History events are stored inside the same SQLite transaction as their associated ticket update. When no field actually changes, no event is added.

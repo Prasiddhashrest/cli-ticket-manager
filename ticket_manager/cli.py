@@ -47,6 +47,19 @@ def make_parser() -> argparse.ArgumentParser:
     unassign = commands.add_parser("unassign", help="Clear the technician assignment")
     unassign.add_argument("id", type=int)
 
+    edit = commands.add_parser("edit", help="Edit ticket title, description, priority or category")
+    edit.add_argument("id", type=int)
+    edit.add_argument("--title", help="New ticket title")
+    edit.add_argument("--description", help="New description (use an empty string to clear)")
+    edit.add_argument("--priority", choices=PRIORITIES)
+    edit.add_argument("--category", choices=CATEGORIES)
+
+    history = commands.add_parser("history", help="Show recorded changes for one ticket")
+    history.add_argument("id", type=int)
+
+    activity = commands.add_parser("activity", help="Show recent changes across all tickets")
+    activity.add_argument("--limit", type=int, default=20)
+
     resolve = commands.add_parser("resolve", help="Mark a ticket resolved")
     resolve.add_argument("id", type=int)
     reopen = commands.add_parser("reopen", help="Reopen a resolved ticket")
@@ -65,6 +78,7 @@ def display_ticket(ticket: Ticket) -> None:
     print("  Assigned to: {}".format(ticket.assigned_to or "Unassigned"))
     print("  Created:     {}".format(ticket.created_at))
     print("  Resolved:    {}".format(ticket.resolved_at or "—"))
+    print("  Updated:     {}".format(ticket.updated_at or "Not recorded before v1.3"))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -129,6 +143,40 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             repo.set_status(args.id, desired_status)
             print("Ticket #{} is now {}.".format(args.id, desired_status))
+    elif args.command == "edit":
+        try:
+            ticket = repo.update_ticket(
+                args.id,
+                title=args.title,
+                description=args.description,
+                priority=args.priority,
+                category=args.category,
+            )
+        except ValueError as error:
+            parser.error(str(error))
+        if ticket is None:
+            print("Ticket #{} was not found.".format(args.id))
+            return 1
+        print("Saved ticket #{}: {}".format(ticket.id, ticket.title))
+    elif args.command in ("history", "activity"):
+        if args.command == "history":
+            if repo.get(args.id) is None:
+                print("Ticket #{} was not found.".format(args.id))
+                return 1
+            events = repo.list_events(ticket_id=args.id)
+        else:
+            try:
+                events = repo.list_events(limit=args.limit)
+            except ValueError as error:
+                parser.error(str(error))
+        if not events:
+            print("No recorded activity. History logging began in v1.3.")
+        for event in events:
+            field = " / {}".format(event.field_name) if event.field_name else ""
+            print("{} | #{} | {}{} | {} -> {}".format(
+                event.created_at, event.ticket_id, event.event_type, field,
+                repr(event.old_value), repr(event.new_value),
+            ))
     elif args.command == "stats":
         counts = repo.stats()
         print("Total: {} | Open: {} | Resolved: {}".format(
