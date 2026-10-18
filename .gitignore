@@ -1,0 +1,17 @@
+# Local data / database: don't commit user-created tickets
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# macOS and editor files
+.DS_Store
+.vscode/
+.idea/

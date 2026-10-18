@@ -1,0 +1,1 @@
+"""CLI Ticket Manager package."""
