@@ -1,0 +1,3 @@
+# Streamlit powers the interactive local dashboard.
+# The original CLI and SQLite persistence use only Python's standard library.
+streamlit>=1.45,<2
